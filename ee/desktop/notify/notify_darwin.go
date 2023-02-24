@@ -65,7 +65,17 @@ func (m *macNotifier) SendNotification(n Notification) error {
 	defer C.free(unsafe.Pointer(titleCStr))
 	bodyCStr := C.CString(n.Body)
 	defer C.free(unsafe.Pointer(bodyCStr))
-	actionUriCStr := C.CString(n.ActionUri)
+
+	actionUriCStr := C.CString("")
+	if len(n.Actions) > 0 {
+		// For now, we only expect one default action
+		for _, a := range n.Actions {
+			if !a.Default {
+				continue
+			}
+			actionUriCStr = C.CString(a.Action)
+		}
+	}
 	defer C.free(unsafe.Pointer(actionUriCStr))
 
 	success := C.sendNotification(titleCStr, bodyCStr, actionUriCStr)

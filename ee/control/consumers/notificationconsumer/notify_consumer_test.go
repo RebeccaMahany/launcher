@@ -43,14 +43,19 @@ func TestUpdate_HappyPath(t *testing.T) {
 	testId := ulid.New()
 	testTitle := fmt.Sprintf("Test title @ %d - %s", time.Now().UnixMicro(), testId)
 	testBody := fmt.Sprintf("Test body @ %d - %s", time.Now().UnixMicro(), testId)
-	testActionUri := "https://www.kolide.com"
 	testNotifications := []notify.Notification{
 		{
 			Title:      testTitle,
 			Body:       testBody,
 			ID:         testId,
 			ValidUntil: getValidUntil(),
-			ActionUri:  testActionUri,
+			Actions: []notify.Action{
+				{
+					Label:   "Learn More",
+					Action:  "https://www.kolide.com",
+					Default: true,
+				},
+			},
 		},
 	}
 	testNotificationsRaw, err := json.Marshal(testNotifications)
@@ -144,7 +149,50 @@ func TestUpdate_ValidatesNotifications(t *testing.T) {
 				Body:       "This notification has an action URI that is not valid",
 				ID:         ulid.New(),
 				ValidUntil: getValidUntil(),
-				ActionUri:  "some_thing:foo/bar",
+				Actions: []notify.Action{
+					{
+						Label:   "Learn More",
+						Action:  "some_thing:foo/bar",
+						Default: true,
+					},
+				},
+			},
+		},
+		{
+			name: "Invalid because the action label is missing",
+			testNotification: notify.Notification{
+				Title:      "Test notification",
+				Body:       "This notification has an action URI that is not valid",
+				ID:         ulid.New(),
+				ValidUntil: getValidUntil(),
+				Actions: []notify.Action{
+					{
+						Label:   "",
+						Action:  "https://www.kolide.com",
+						Default: true,
+					},
+				},
+			},
+		},
+		{
+			name: "Invalid because there are multiple default actions",
+			testNotification: notify.Notification{
+				Title:      "Test notification",
+				Body:       "This notification has an action URI that is not valid",
+				ID:         ulid.New(),
+				ValidUntil: getValidUntil(),
+				Actions: []notify.Action{
+					{
+						Label:   "Learn More",
+						Action:  "https://www.kolide.com",
+						Default: true,
+					},
+					{
+						Label:   "Another Label",
+						Action:  "https://example.com",
+						Default: true,
+					},
+				},
 			},
 		},
 	}

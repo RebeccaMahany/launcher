@@ -44,16 +44,17 @@ func (w *windowsNotifier) SendNotification(n Notification) error {
 		notification.Icon = w.iconFilepath
 	}
 
-	if n.ActionUri != "" {
-		// Set the default action when the user clicks on the notification
-		notification.ActivationArguments = n.ActionUri
+	for _, a := range n.Actions {
+		if a.Default {
+			// Set the default action when the user clicks on the notification
+			notification.ActivationArguments = a.Action
+		}
 
-		// Additionally, create a "Learn more" button that will open the same URL
 		notification.Actions = []toast.Action{
 			{
 				Type:      "protocol",
-				Label:     "Learn More",
-				Arguments: n.ActionUri,
+				Label:     a.Label,
+				Arguments: a.Action,
 			},
 		}
 	}

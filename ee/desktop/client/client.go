@@ -55,12 +55,7 @@ func (c *client) Refresh() error {
 }
 
 func (c *client) Notify(n notify.Notification) error {
-	notificationToSend := notify.Notification{
-		Title:     n.Title,
-		Body:      n.Body,
-		ActionUri: n.ActionUri,
-	}
-	bodyBytes, err := json.Marshal(notificationToSend)
+	bodyBytes, err := json.Marshal(n)
 	if err != nil {
 		return fmt.Errorf("could not marshal notification: %w", err)
 	}

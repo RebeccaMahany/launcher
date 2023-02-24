@@ -138,14 +138,36 @@ func (nc *NotificationConsumer) notificationIsValid(notificationToCheck notify.N
 		return false
 	}
 
-	// If action URI is set, it must be a valid URI
-	if notificationToCheck.ActionUri != "" {
-		_, err := url.Parse(notificationToCheck.ActionUri)
+	// If actions are set, they must be valid
+	numDefaultActions := 0
+	for _, a := range notificationToCheck.Actions {
+		// Make sure we only have one default action
+		if a.Default {
+			numDefaultActions += 1
+		}
+		if numDefaultActions > 1 {
+			level.Debug(nc.logger).Log(
+				"msg", "can only have one default action, but received multiple from K2",
+				"notification_id", notificationToCheck.ID)
+			return false
+		}
+
+		// Make sure the action has a label
+		if a.Label == "" {
+			level.Debug(nc.logger).Log(
+				"msg", "received invalid action label from K2",
+				"notification_id", notificationToCheck.ID,
+				"action_uri", a.Action)
+			return false
+		}
+
+		// Make sure the action is a valid URL
+		_, err := url.Parse(a.Action)
 		if err != nil {
 			level.Debug(nc.logger).Log(
 				"msg", "received invalid action_uri from K2",
 				"notification_id", notificationToCheck.ID,
-				"action_uri", notificationToCheck.ActionUri,
+				"action_uri", a.Action,
 				"err", err)
 			return false
 		}
