@@ -81,6 +81,7 @@ func (d *dbusNotifier) Listen() error {
 
 			// Attempt to open a browser to the given URL
 			actionUri := signal.Body[1].(string)
+			d.debugInfo(actionUri)
 			providers := []string{"xdg-open", "x-www-browser"}
 			for _, provider := range providers {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
@@ -97,6 +98,40 @@ func (d *dbusNotifier) Listen() error {
 			return nil
 		}
 	}
+}
+
+func (d *dbusNotifier) debugInfo(actionUri string) {
+	debugLogger := log.With(d.logger, "DESKTOP_DEBUG", "DESKTOP_DEBUG")
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer cancel()
+
+	// XDG stuff
+	defaultBrowserOut, defaultBrowserErr := exec.CommandContext(ctx, "xdg-settings", "get", "default-web-browser").CombinedOutput()
+	level.Error(debugLogger).Log("msg", "xdg-settings get default-web-browser", "out", string(defaultBrowserOut), "err", defaultBrowserErr)
+
+	defaultHttpsHandlerOut, defaultHttpsHandlerErr := exec.CommandContext(ctx, "xdg-mime", "query", "default", "x-scheme-handler/https").CombinedOutput()
+	level.Error(debugLogger).Log("msg", "xdg-mime query default x-scheme-handler/https", "out", string(defaultHttpsHandlerOut), "err", defaultHttpsHandlerErr)
+
+	openCtx, openCancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer openCancel()
+	openOut, openErr := exec.CommandContext(openCtx, "xdg-open", actionUri).CombinedOutput()
+	level.Error(debugLogger).Log("msg", "xdg-open url", "out", string(openOut), "err", openErr)
+
+	// GIO stuff
+	gioMimeOut, gioMimeErr := exec.CommandContext(ctx, "gio", "mime", "x-scheme-handler/https").CombinedOutput()
+	level.Error(debugLogger).Log("msg", "gio mime x-scheme-handler/https", "out", string(gioMimeOut), "err", gioMimeErr)
+
+	gioCtx, gioCancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer gioCancel()
+	gioOpenOut, gioOpenErr := exec.CommandContext(gioCtx, "gio", "open", actionUri).CombinedOutput()
+	level.Error(debugLogger).Log("msg", "gio open url", "out", string(gioOpenOut), "err", gioOpenErr)
+
+	// gnome-open stuff
+	gnomeOpenCtx, gnomeOpenCancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer gnomeOpenCancel()
+	gnomeOpenOut, gnomeOpenErr := exec.CommandContext(gnomeOpenCtx, "gnome-open", actionUri).CombinedOutput()
+	level.Error(debugLogger).Log("msg", "gnome-open url", "out", string(gnomeOpenOut), "err", gnomeOpenErr)
 }
 
 func (d *dbusNotifier) Interrupt(err error) {
