@@ -6,6 +6,7 @@ package wmitable
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/kolide/launcher/ee/agent/types"
 	"github.com/kolide/launcher/ee/dataflatten"
 	"github.com/kolide/launcher/ee/observability"
+	"github.com/kolide/launcher/ee/performance"
 	"github.com/kolide/launcher/ee/tables/dataflattentable"
 	"github.com/kolide/launcher/ee/tables/tablehelpers"
 	"github.com/kolide/launcher/ee/tables/tablewrapper"
@@ -46,6 +48,8 @@ func (t *Table) generate(ctx context.Context, queryContext table.QueryContext) (
 	ctx, span := observability.StartSpan(ctx, "table_name", "kolide_wmi")
 	defer span.End()
 
+	startingStats, startingStatsErr := performance.CurrentProcessStats(ctx)
+
 	var results []map[string]string
 
 	classes := tablehelpers.GetConstraints(queryContext, "class", tablehelpers.WithAllowedCharacters(allowedCharacters))
@@ -64,6 +68,24 @@ func (t *Table) generate(ctx context.Context, queryContext table.QueryContext) (
 		tablehelpers.WithDefaults(""),
 		tablehelpers.WithAllowedCharacters(allowedCharacters+`\`),
 	)
+
+	defer func() {
+		endingStats, endingStatsErr := performance.CurrentProcessStats(ctx)
+		t.slogger.Log(ctx, slog.LevelDebug,
+			"collected stats before and after kolide_wmi table execution",
+			"golang_mem_diff", endingStats.MemInfo.GoMemUsage-startingStats.MemInfo.GoMemUsage,
+			"golang_mem_start", startingStats.MemInfo.GoMemUsage,
+			"golang_mem_end", endingStats.MemInfo.GoMemUsage,
+			"rss_diff", endingStats.MemInfo.RSS-startingStats.MemInfo.RSS,
+			"rss_start", startingStats.MemInfo.RSS,
+			"rss_end", endingStats.MemInfo.RSS,
+			"classes_queried", fmt.Sprintf("%+v", classes),
+			"properties_queried", fmt.Sprintf("%+v", properties),
+			"namespaces_queried", fmt.Sprintf("%+v", namespaces),
+			"err_start", startingStatsErr,
+			"err_end", endingStatsErr,
+		)
+	}()
 
 	// Any whereclauses? These are not required
 	whereClauses := tablehelpers.GetConstraints(queryContext, "whereclause",
