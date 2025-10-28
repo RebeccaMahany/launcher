@@ -21,12 +21,12 @@ func Benchmark_explorerProcesses(b *testing.B) {
 	}
 }
 
-func Benchmark_explorerProcessesViaQuery(b *testing.B) {
+func Benchmark_explorerProcessesViaGetProcess(b *testing.B) {
 	// Report memory allocations
 	b.ReportAllocs()
 
 	for range b.N {
-		procs, err := explorerProcessesViaQuery(b.Context())
+		procs, err := explorerProcessesViaGetProcess(b.Context())
 		assert.NoError(b, err)
 		require.Greater(b, len(procs), 0)
 	}

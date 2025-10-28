@@ -126,33 +126,33 @@ func explorerProcesses(ctx context.Context) ([]*process.Process, error) {
 	return explorerProcs, nil
 }
 
-func explorerProcessesViaQuery(ctx context.Context) ([]*process.Process, error) {
+func explorerProcessesViaGetProcess(ctx context.Context) ([]*process.Process, error) {
 	ctx, span := observability.StartSpan(ctx)
 	defer span.End()
 
-	queryProcessCmd, err := allowedcmd.Query(ctx, "process", "explorer.exe")
+	queryProcessCmd, err := allowedcmd.Powershell(ctx, "Get-Process", "explorer")
 	if err != nil {
-		return nil, fmt.Errorf("creating query process cmd: %w", err)
+		return nil, fmt.Errorf("creating Get-Process cmd: %w", err)
 	}
 
-	procsRaw, err := queryProcessCmd.CombinedOutput()
+	explorerProcsRaw, err := queryProcessCmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("running query process explorer.exe: output `%s`: %w", string(procsRaw), err)
+		return nil, fmt.Errorf("running Get-Process explorer: output `%s`: %w", string(explorerProcsRaw), err)
 	}
 
 	procsParser := data_table.NewParser()
-	parsedProcs, err := procsParser.Parse(bytes.NewReader(procsRaw))
+	parsedExplorerProcs, err := procsParser.Parse(bytes.NewReader(explorerProcsRaw))
 	if err != nil {
-		return nil, fmt.Errorf("parsing query process explorer.exe output: %w", err)
+		return nil, fmt.Errorf("parsing Get-Process explorer output: %w", err)
 	}
-	parsedProcsList, ok := parsedProcs.([]map[string]string)
+	parsedProcsList, ok := parsedExplorerProcs.([]map[string]string)
 	if !ok {
-		return nil, fmt.Errorf("unexpected return format %T from parsing query process explorer.exe output", parsedProcs)
+		return nil, fmt.Errorf("unexpected return format %T from parsing `Get-Process explorer` output", parsedExplorerProcs)
 	}
 
 	var explorerProcs []*process.Process
 	for _, procData := range parsedProcsList {
-		pid, pidFound := procData["PID"]
+		pid, pidFound := procData["Id"]
 		if !pidFound {
 			continue
 		}
