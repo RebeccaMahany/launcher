@@ -4,15 +4,19 @@
 package consoleuser
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"maps"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	winlsa "github.com/kolide/go-winlsa"
+	"github.com/kolide/launcher/ee/allowedcmd"
 	"github.com/kolide/launcher/ee/observability"
+	"github.com/kolide/launcher/ee/tables/execparsers/data_table"
 	"github.com/shirou/gopsutil/v4/process"
 	"golang.org/x/sys/windows"
 )
@@ -117,6 +121,50 @@ func explorerProcesses(ctx context.Context) ([]*process.Process, error) {
 		if filepath.Base(exe) == "explorer.exe" {
 			explorerProcs = append(explorerProcs, proc)
 		}
+	}
+
+	return explorerProcs, nil
+}
+
+func explorerProcessesViaQuery(ctx context.Context) ([]*process.Process, error) {
+	ctx, span := observability.StartSpan(ctx)
+	defer span.End()
+
+	queryProcessCmd, err := allowedcmd.Query(ctx, "process", "explorer.exe")
+	if err != nil {
+		return nil, fmt.Errorf("creating query process cmd: %w", err)
+	}
+
+	procsRaw, err := queryProcessCmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("running query process explorer.exe: output `%s`: %w", string(procsRaw), err)
+	}
+
+	procsParser := data_table.NewParser()
+	parsedProcs, err := procsParser.Parse(bytes.NewReader(procsRaw))
+	if err != nil {
+		return nil, fmt.Errorf("parsing query process explorer.exe output: %w", err)
+	}
+	parsedProcsList, ok := parsedProcs.([]map[string]string)
+	if !ok {
+		return nil, fmt.Errorf("unexpected return format %T from parsing query process explorer.exe output", parsedProcs)
+	}
+
+	var explorerProcs []*process.Process
+	for _, procData := range parsedProcsList {
+		pid, pidFound := procData["PID"]
+		if !pidFound {
+			continue
+		}
+		pidInt, err := strconv.Atoi(pid)
+		if err != nil {
+			continue
+		}
+		proc, err := process.NewProcessWithContext(ctx, int32(pidInt))
+		if err != nil {
+			continue
+		}
+		explorerProcs = append(explorerProcs, proc)
 	}
 
 	return explorerProcs, nil

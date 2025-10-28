@@ -38,6 +38,10 @@ func Powershell(ctx context.Context, arg ...string) (*TracedCmd, error) {
 	return validatedCommand(ctx, filepath.Join(os.Getenv("WINDIR"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), arg...)
 }
 
+func Query(ctx context.Context, arg ...string) (*TracedCmd, error) {
+	return validatedCommand(ctx, filepath.Join(os.Getenv("WINDIR"), "System32", "query.exe"), arg...)
+}
+
 func Repcli(ctx context.Context, arg ...string) (*TracedCmd, error) {
 	return validatedCommand(ctx, filepath.Join(os.Getenv("PROGRAMFILES"), "Confer", "repcli"), arg...)
 }
