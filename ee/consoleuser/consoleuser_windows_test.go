@@ -26,7 +26,7 @@ func Benchmark_explorerProcessesViaGetProcess(b *testing.B) {
 	b.ReportAllocs()
 
 	for range b.N {
-		procs, err := explorerProcessesViaGetProcess(b.Context())
+		procs, err := explorerProcessesViaTasklist(b.Context())
 		assert.NoError(b, err)
 		require.Greater(b, len(procs), 0)
 	}

@@ -126,33 +126,36 @@ func explorerProcesses(ctx context.Context) ([]*process.Process, error) {
 	return explorerProcs, nil
 }
 
-func explorerProcessesViaGetProcess(ctx context.Context) ([]*process.Process, error) {
+func explorerProcessesViaTasklist(ctx context.Context) ([]*process.Process, error) {
 	ctx, span := observability.StartSpan(ctx)
 	defer span.End()
 
-	queryProcessCmd, err := allowedcmd.Powershell(ctx, "Get-Process", "explorer")
+	tasklistCmd, err := allowedcmd.Tasklist(ctx, `FI`, "ImageName eq explorer.exe")
 	if err != nil {
-		return nil, fmt.Errorf("creating Get-Process cmd: %w", err)
+		return nil, fmt.Errorf("creating tasklist cmd: %w", err)
 	}
 
-	explorerProcsRaw, err := queryProcessCmd.CombinedOutput()
+	explorerProcsRaw, err := tasklistCmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("running Get-Process explorer: output `%s`: %w", string(explorerProcsRaw), err)
+		return nil, fmt.Errorf("running tasklist: output `%s`: %w", string(explorerProcsRaw), err)
 	}
 
-	procsParser := data_table.NewParser()
+	procsParser := data_table.NewParser(
+		data_table.WithHeaders([]string{"Image Name", "PID", "Session Name", "Session#", "Mem Usage"}),
+		data_table.WithSkipLines(2),
+	)
 	parsedExplorerProcs, err := procsParser.Parse(bytes.NewReader(explorerProcsRaw))
 	if err != nil {
-		return nil, fmt.Errorf("parsing Get-Process explorer output: %w", err)
+		return nil, fmt.Errorf("parsing tasklist output: %w", err)
 	}
 	parsedProcsList, ok := parsedExplorerProcs.([]map[string]string)
 	if !ok {
-		return nil, fmt.Errorf("unexpected return format %T from parsing `Get-Process explorer` output", parsedExplorerProcs)
+		return nil, fmt.Errorf("unexpected return format %T from parsing tasklist output", parsedExplorerProcs)
 	}
 
 	var explorerProcs []*process.Process
 	for _, procData := range parsedProcsList {
-		pid, pidFound := procData["Id"]
+		pid, pidFound := procData["PID"]
 		if !pidFound {
 			continue
 		}
