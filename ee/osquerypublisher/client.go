@@ -2,6 +2,7 @@ package osquerypublisher
 
 import (
 	"bytes"
+	"compress/zlib"
 	"context"
 	"encoding/json"
 	"errors"
@@ -45,24 +46,69 @@ type (
 		psks         map[string]*KeyData
 		tokensMutex  *sync.RWMutex          // used to protect the authTokens, hpkeKeys, and psks maps
 		metadataJSON atomic.Pointer[[]byte] // cached JSON for encrypted blob metadata (see refreshServerMetadata)
+		// zlibWriter compresses marshaled JSON prior to HPKE.
+		zlibWriter      *zlib.Writer
+		zlibCompressBuf bytes.Buffer
+		// zlibWriterMutex protects against concurrent Write/Close/Reset operations on our zlibWriter and zlibCompressBuf
+		zlibWriterMutex *sync.Mutex
 	}
 )
 
 func NewLogPublisherClient(logger *slog.Logger, k types.Knapsack, client PublisherHTTPClient) types.OsqueryPublisher {
+	compressionBuffer := bytes.Buffer{}
 	lpc := LogPublisherClient{
-		slogger:     logger.With("component", "osquery_log_publisher"),
-		knapsack:    k,
-		client:      client,
-		authTokens:  make(map[string]string),
-		tokensMutex: &sync.RWMutex{},
-		hpkeKeys:    make(map[string]*KeyData),
-		psks:        make(map[string]*KeyData),
+		slogger:         logger.With("component", "osquery_log_publisher"),
+		knapsack:        k,
+		client:          client,
+		authTokens:      make(map[string]string),
+		tokensMutex:     &sync.RWMutex{},
+		hpkeKeys:        make(map[string]*KeyData),
+		psks:            make(map[string]*KeyData),
+		zlibWriter:      zlib.NewWriter(&compressionBuffer),
+		zlibCompressBuf: compressionBuffer,
+		zlibWriterMutex: &sync.Mutex{},
 	}
 
 	lpc.refreshTokenCache()
 	lpc.refreshServerMetadata()
 
 	return &lpc
+}
+
+// Close closes any client idle connections and releases the zlib writer.
+func (lpc *LogPublisherClient) Close() error {
+	if lpc.client != nil { // safe to call more than once
+		lpc.client.CloseIdleConnections()
+	}
+
+	lpc.zlibWriterMutex.Lock()
+	defer lpc.zlibWriterMutex.Unlock()
+	// compressPayload already Closes the zlib writer after each encode, just nil out the field and
+	// reset the buffer to clear any residual state
+	lpc.zlibWriter = nil
+	lpc.zlibCompressBuf.Reset()
+	return nil
+}
+
+// compressPayload returns a zlib-compressed copy of the marshaled JSON request body.
+func (lpc *LogPublisherClient) compressPayload(src []byte) ([]byte, error) {
+	lpc.zlibWriterMutex.Lock()
+	defer lpc.zlibWriterMutex.Unlock()
+
+	// to prevent excessive allocations across many small writes, we reset the buffer and writer
+	// before each compress operation instead of initializing a new writer and buffer each time
+	lpc.zlibCompressBuf.Reset()
+	lpc.zlibWriter.Reset(&lpc.zlibCompressBuf)
+
+	if _, err := lpc.zlibWriter.Write(src); err != nil {
+		return nil, fmt.Errorf("zlib write: %w", err)
+	}
+
+	if err := lpc.zlibWriter.Close(); err != nil {
+		return nil, fmt.Errorf("zlib close: %w", err)
+	}
+
+	return bytes.Clone(lpc.zlibCompressBuf.Bytes()), nil
 }
 
 // NewPublisherHTTPClient is a helper method to allow us to make any http client tweaks as we learn realistic
@@ -186,7 +232,27 @@ func (lpc *LogPublisherClient) publish(ctx context.Context, slogger *slog.Logger
 		return nil, fmt.Errorf("marshaling unencrypted request payload: %w", err)
 	}
 
-	// TODO: (upcoming PR) data should be compressed here prior to encryption
+	uncompressedPayloadLen := len(jsonData)
+	jsonData, err = lpc.compressPayload(jsonData)
+	if err != nil {
+		return nil, fmt.Errorf("zlib compressing publication payload: %w", err)
+	}
+	compressedPayloadLen := len(jsonData)
+	// the following log is temporary and will be used to evaluate how we should change the batching logic
+	// to account for compression. this can be removed once we've made that determination. for now we'll maintain
+	// the pre-compression max batch size values, but can likely increase that value depending on the compression ratio
+	// we see for this data.
+	if uncompressedPayloadLen > 0 {
+		slogger.Log(ctx, slog.LevelInfo,
+			"osquery publication zlib compression stats",
+			"publication_type", publicationPath,
+			"raw_payload_length", uncompressedPayloadLen,
+			"compressed_payload_length", compressedPayloadLen,
+			"compression_ratio", float64(uncompressedPayloadLen)/float64(compressedPayloadLen),
+			"bytes_saved", uncompressedPayloadLen-compressedPayloadLen,
+		)
+	}
+
 	// encrypt the payload
 	encryptedBlob, err := encryptWithHPKE(jsonData, hpkeKey, psk, metadataJSON)
 	if err != nil {
