@@ -417,13 +417,9 @@ func Test_isEncryptedJWTFamilyValue(t *testing.T) {
 func Test_isEmptyVariable(t *testing.T) {
 	t.Parallel()
 
-	// Set up one table for use for all test cases
-	tbl := &Table{
-		slogger: multislogger.NewNopLogger(),
-	}
-	cfg, err := newDefaultConfig()
-	require.NoError(t, err)
-	tbl.defaultConfig = &cfg
+	// Make sure config exists
+	newConfigOnce()
+	require.NoError(t, configErr)
 
 	for _, tt := range []struct {
 		testCaseName   string
@@ -482,7 +478,7 @@ func Test_isEmptyVariable(t *testing.T) {
 		t.Run(tt.testCaseName, func(t *testing.T) {
 			t.Parallel()
 
-			detector := detect.NewDetector(*tbl.defaultConfig)
+			detector := detect.NewDetector(*kolideConfig)
 			fileSource := &sources.File{
 				Content: strings.NewReader(tt.rawData),
 				Config:  &detector.Config,

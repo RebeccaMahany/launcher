@@ -1,0 +1,6 @@
+# This config extends the default gitleaks config with some additional settings
+# to avoid false positives.
+title = "Kolide secretscan config"
+
+[extend]
+useDefault = true
