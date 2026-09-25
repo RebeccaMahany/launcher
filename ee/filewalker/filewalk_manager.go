@@ -19,7 +19,7 @@ import (
 // to the filewalk manager to trigger ad hoc filewalks.
 const FilewalkNowAction = "filewalk_now"
 
-// intervalStagger is the amount that we want to stagger regular filewalker walks.
+// intervalStagger is the amount that we want to stagger filewalker walks.
 // Our P95 for our three current filewalkers tops out at under 2 minutes 40 seconds, so
 // 3 minutes should be an appropriate choice to offset filewalkers for most cases.
 var intervalStaggerSeconds = 3 * 60

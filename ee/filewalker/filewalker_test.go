@@ -1,13 +1,16 @@
 package filewalker
 
 import (
+	"bytes"
 	"regexp"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/kolide/launcher/v2/ee/agent/storage"
 	storageci "github.com/kolide/launcher/v2/ee/agent/storage/ci"
+	"github.com/kolide/launcher/v2/ee/agent/types"
 	"github.com/kolide/launcher/v2/pkg/log/multislogger"
 	"github.com/stretchr/testify/require"
 )
@@ -158,6 +161,50 @@ func TestUpdateConfig(t *testing.T) {
 		require.Equal(t, tt.expectedSkipDirs, testFw.skipDirs)
 		require.Nil(t, testFw.fileTypeFilter)
 	}
+}
+
+// walkCountingStore counts completed filewalks by watching for last-walk-time writes.
+type walkCountingStore struct {
+	types.GetterSetterDeleter
+	walks atomic.Int32
+}
+
+func (w *walkCountingStore) Set(k, v []byte) error {
+	if bytes.HasSuffix(k, []byte("_last_walk")) {
+		w.walks.Add(1)
+	}
+	return w.GetterSetterDeleter.Set(k, v)
+}
+
+func TestWork_walkOffset(t *testing.T) {
+	t.Parallel()
+
+	slogger := multislogger.NewNopLogger()
+	baseStore, err := storageci.NewStore(t, slogger, storage.FilewalkResultsStore.String())
+	require.NoError(t, err)
+	store := &walkCountingStore{GetterSetterDeleter: baseStore}
+
+	walkInterval := 200 * time.Millisecond
+	walkOffset := 2 * time.Second
+	testFw := newFilewalker("test_offset", filewalkConfig{
+		WalkInterval:       duration(walkInterval),
+		filewalkDefinition: filewalkDefinition{RootDirs: &[]string{t.TempDir()}},
+	}, walkOffset, store, slogger)
+
+	go testFw.Work()
+	t.Cleanup(testFw.Stop)
+
+	// First walk happens immediately
+	time.Sleep(walkInterval / 2)
+	require.Equal(t, int32(1), store.walks.Load())
+
+	// No walks during offset delay
+	time.Sleep(walkOffset - walkInterval)
+	require.Equal(t, int32(1), store.walks.Load())
+
+	// Walks resume on interval once offset has elapsed
+	time.Sleep(walkOffset)
+	require.Greater(t, store.walks.Load(), int32(1))
 }
 
 func BenchmarkFilewalk(b *testing.B) {

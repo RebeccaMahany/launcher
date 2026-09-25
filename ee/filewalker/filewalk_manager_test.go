@@ -18,6 +18,7 @@ import (
 	"github.com/kolide/launcher/v2/ee/agent/storage"
 	storageci "github.com/kolide/launcher/v2/ee/agent/storage/ci"
 	typesmocks "github.com/kolide/launcher/v2/ee/agent/types/mocks"
+	"github.com/kolide/launcher/v2/pkg/log/multislogger"
 	"github.com/kolide/launcher/v2/pkg/threadsafebuffer"
 	"github.com/stretchr/testify/require"
 )
@@ -184,6 +185,56 @@ func TestPing(t *testing.T) {
 
 	// Shut down
 	filewalkManager.Interrupt(nil)
+}
+
+func Test_walkOffsets(t *testing.T) {
+	t.Parallel()
+
+	slogger := multislogger.NewNopLogger()
+	mockKnapsack := typesmocks.NewKnapsack(t)
+	cfgStore, err := storageci.NewStore(t, slogger, storage.FilewalkConfigStore.String())
+	require.NoError(t, err)
+	mockKnapsack.On("FilewalkConfigStore").Return(cfgStore)
+	resultsStore, err := storageci.NewStore(t, slogger, storage.FilewalkResultsStore.String())
+	require.NoError(t, err)
+	mockKnapsack.On("FilewalkResultsStore").Return(resultsStore)
+
+	setCfg := func(name string) {
+		cfgRaw, err := json.Marshal(generateCfgWithSeeding(t, 500*time.Minute, 1, nil, 1))
+		require.NoError(t, err)
+		require.NoError(t, cfgStore.Set([]byte(name), cfgRaw))
+	}
+	for _, name := range []string{"a", "b", "c"} {
+		setCfg(name)
+	}
+
+	filewalkManager := New(mockKnapsack, slogger)
+	go filewalkManager.Execute()
+	t.Cleanup(func() { filewalkManager.Interrupt(nil) })
+
+	stagger := time.Duration(intervalStaggerSeconds) * time.Second
+	require.Eventually(t, func() bool { return len(walkOffsets(filewalkManager)) == 3 }, 5*time.Second, 50*time.Millisecond)
+	require.ElementsMatch(t, []time.Duration{0, stagger, 2 * stagger}, walkOffsets(filewalkManager))
+
+	// Updating an existing filewalker preserves offsets
+	setCfg("a")
+	filewalkManager.Ping()
+	require.ElementsMatch(t, []time.Duration{0, stagger, 2 * stagger}, walkOffsets(filewalkManager))
+
+	// Adding a filewalker gives it the next offset
+	setCfg("d")
+	filewalkManager.Ping()
+	require.ElementsMatch(t, []time.Duration{0, stagger, 2 * stagger, 3 * stagger}, walkOffsets(filewalkManager))
+}
+
+func walkOffsets(fm *FilewalkManager) []time.Duration {
+	fm.filewalkersLock.Lock()
+	defer fm.filewalkersLock.Unlock()
+	offsets := make([]time.Duration, 0, len(fm.filewalkers))
+	for _, fw := range fm.filewalkers {
+		offsets = append(offsets, fw.walkOffset)
+	}
+	return offsets
 }
 
 func TestDo(t *testing.T) {

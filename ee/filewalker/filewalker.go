@@ -85,7 +85,9 @@ func (f *filewalker) Work() {
 	}
 
 	// Now set our ticker on our walk interval
+	f.walkLock.Lock()
 	f.ticker = time.NewTicker(f.walkInterval)
+	f.walkLock.Unlock()
 	defer f.ticker.Stop()
 
 	for {
