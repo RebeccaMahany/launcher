@@ -50,7 +50,7 @@ func TestFilewalkTable(t *testing.T) {
 			FileNameRegex: nil,
 		},
 	}
-	testFilewalker := newFilewalker(walkName, cfg, store, multislogger.NewNopLogger())
+	testFilewalker := newFilewalker(walkName, cfg, 0*time.Second, store, multislogger.NewNopLogger())
 	startTime := time.Now().Unix()
 	go testFilewalker.Work()
 	t.Cleanup(testFilewalker.Stop)

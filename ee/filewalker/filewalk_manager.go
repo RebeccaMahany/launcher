@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/kolide/launcher/v2/ee/agent/types"
 	"github.com/kolide/launcher/v2/ee/gowrapper"
@@ -17,6 +18,11 @@ import (
 // FilewalkNowAction is the control server action forwarded by the actionqueue
 // to the filewalk manager to trigger ad hoc filewalks.
 const FilewalkNowAction = "filewalk_now"
+
+// intervalStagger is the amount that we want to stagger regular filewalker walks.
+// Our P95 for our three current filewalkers tops out at under 2 minutes 40 seconds, so
+// 3 minutes should be an appropriate choice to offset filewalkers for most cases.
+var intervalStaggerSeconds = 3 * 60
 
 // controlServerFilewalkRequest is the request sent down by the control server
 // to trigger ad hoc filewalks. If the list of filewalks is empty, the manager
@@ -63,9 +69,11 @@ func (fm *FilewalkManager) Execute() error {
 		)
 	}
 	fm.filewalkersLock.Lock()
+	i := 0
 	for filewalkerName, cfg := range cfgs {
-		fm.filewalkers[filewalkerName] = newFilewalker(filewalkerName, cfg, fm.k.FilewalkResultsStore(), fm.slogger)
+		fm.filewalkers[filewalkerName] = newFilewalker(filewalkerName, cfg, time.Duration(i*intervalStaggerSeconds)*time.Second, fm.k.FilewalkResultsStore(), fm.slogger)
 		gowrapper.Go(context.TODO(), fm.slogger, fm.filewalkers[filewalkerName].Work)
+		i += 1
 	}
 	fm.slogger.Log(context.TODO(), slog.LevelDebug,
 		"started all filewalkers",
@@ -134,6 +142,7 @@ func (fm *FilewalkManager) Ping() {
 	}
 
 	// Check for filewalkers to add or update
+	newFilewalkerIdx := len(fm.filewalkers)
 	for filewalkerName, cfg := range cfgs {
 		if fw, alreadyExists := fm.filewalkers[filewalkerName]; alreadyExists {
 			fw.UpdateConfig(cfg)
@@ -141,8 +150,9 @@ func (fm *FilewalkManager) Ping() {
 			gowrapper.Go(context.TODO(), fm.slogger, func() { fw.Filewalk(context.TODO()) })
 		} else {
 			// Add the new filewalker
-			fm.filewalkers[filewalkerName] = newFilewalker(filewalkerName, cfg, fm.k.FilewalkResultsStore(), fm.slogger)
+			fm.filewalkers[filewalkerName] = newFilewalker(filewalkerName, cfg, time.Duration(newFilewalkerIdx*intervalStaggerSeconds)*time.Second, fm.k.FilewalkResultsStore(), fm.slogger)
 			gowrapper.Go(context.TODO(), fm.slogger, fm.filewalkers[filewalkerName].Work)
+			newFilewalkerIdx += 1
 		}
 	}
 

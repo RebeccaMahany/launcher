@@ -23,6 +23,7 @@ type filewalker struct {
 	// Configuration
 	name           string
 	walkInterval   time.Duration
+	walkOffset     time.Duration
 	rootDirs       []string
 	fileNameRegex  *regexp.Regexp
 	fileTypeFilter *fileTypeFilter
@@ -38,10 +39,11 @@ type filewalker struct {
 	interrupt chan struct{}
 }
 
-func newFilewalker(name string, cfg filewalkConfig, resultsStore types.GetterSetterDeleter, slogger *slog.Logger) *filewalker {
+func newFilewalker(name string, cfg filewalkConfig, walkOffset time.Duration, resultsStore types.GetterSetterDeleter, slogger *slog.Logger) *filewalker {
 	fw := &filewalker{
 		name:         name,
 		walkInterval: time.Duration(cfg.WalkInterval),
+		walkOffset:   walkOffset,
 		slogger:      slogger.With("filewalker_name", name),
 		walkLock:     &sync.Mutex{},
 		resultsStore: resultsStore,
@@ -56,17 +58,37 @@ func newFilewalker(name string, cfg filewalkConfig, resultsStore types.GetterSet
 
 // Work executes filewalks on the given interval, until interrupted via Stop.
 func (f *filewalker) Work() {
-	f.ticker = time.NewTicker(f.walkInterval)
-	defer f.ticker.Stop()
-
 	f.slogger.Log(context.TODO(), slog.LevelDebug,
 		"starting up",
 		"walk_interval", f.walkInterval.String(),
 	)
 
-	for {
-		f.Filewalk(context.TODO())
+	// Always filewalk first, in case this is the first time we are collecting data.
+	f.Filewalk(context.TODO())
 
+	// Wait `f.walkOffset` so that this filewalker's interval
+	// does not exactly match up with other filewalkers.
+	f.slogger.Log(context.TODO(), slog.LevelDebug,
+		"entering offset delay",
+		"offset_delay", f.walkOffset.String(),
+	)
+	select {
+	case <-f.interrupt:
+		f.slogger.Log(context.TODO(), slog.LevelDebug,
+			"received external interrupt during initial offset delay, stopping",
+		)
+		return
+	case <-time.After(f.walkOffset):
+		f.slogger.Log(context.TODO(), slog.LevelDebug,
+			"exiting offset delay",
+		)
+	}
+
+	// Now set our ticker on our walk interval
+	f.ticker = time.NewTicker(f.walkInterval)
+	defer f.ticker.Stop()
+
+	for {
 		select {
 		case <-f.interrupt:
 			f.slogger.Log(context.TODO(), slog.LevelDebug,
@@ -74,7 +96,7 @@ func (f *filewalker) Work() {
 			)
 			return
 		case <-f.ticker.C:
-			continue
+			f.Filewalk(context.TODO())
 		}
 	}
 }

@@ -151,7 +151,7 @@ func TestUpdateConfig(t *testing.T) {
 		resultsStore, err := storageci.NewStore(t, slogger, storage.FilewalkResultsStore.String())
 		require.NoError(t, err)
 
-		testFw := newFilewalker("test_filewalk_table", tt.cfg, resultsStore, slogger)
+		testFw := newFilewalker("test_filewalk_table", tt.cfg, 0*time.Second, resultsStore, slogger)
 		require.Equal(t, tt.expectedWalkInterval, testFw.walkInterval)
 		require.Equal(t, tt.expectedRootDirs, testFw.rootDirs)
 		require.Equal(t, tt.expectedFileNameRegex, testFw.fileNameRegex)
@@ -181,7 +181,7 @@ func BenchmarkFilewalk(b *testing.B) {
 			RootDirs:      &[]string{testDir},
 			FileNameRegex: nil,
 		},
-	}, store, multislogger.NewNopLogger())
+	}, 0*time.Second, store, multislogger.NewNopLogger())
 
 	b.ReportAllocs()
 	for b.Loop() {
