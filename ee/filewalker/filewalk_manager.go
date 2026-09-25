@@ -19,10 +19,10 @@ import (
 // to the filewalk manager to trigger ad hoc filewalks.
 const FilewalkNowAction = "filewalk_now"
 
-// intervalStagger is the amount that we want to stagger filewalker walks.
+// intervalStaggerSeconds is the amount that we want to stagger filewalker walks.
 // Our P95 for our three current filewalkers tops out at under 2 minutes 40 seconds, so
 // 3 minutes should be an appropriate choice to offset filewalkers for most cases.
-var intervalStaggerSeconds = 3 * 60
+const intervalStaggerSeconds = 3 * 60
 
 // controlServerFilewalkRequest is the request sent down by the control server
 // to trigger ad hoc filewalks. If the list of filewalks is empty, the manager

@@ -58,6 +58,7 @@ func newFilewalker(name string, cfg filewalkConfig, walkOffset time.Duration, re
 
 // Work executes filewalks on the given interval, until interrupted via Stop.
 func (f *filewalker) Work() {
+	startTime := time.Now()
 	f.slogger.Log(context.TODO(), slog.LevelDebug,
 		"starting up",
 		"walk_interval", f.walkInterval.String(),
@@ -72,13 +73,14 @@ func (f *filewalker) Work() {
 		"entering offset delay",
 		"offset_delay", f.walkOffset.String(),
 	)
+	offsetEnd := startTime.Add(f.walkOffset)
 	select {
 	case <-f.interrupt:
 		f.slogger.Log(context.TODO(), slog.LevelDebug,
 			"received external interrupt during initial offset delay, stopping",
 		)
 		return
-	case <-time.After(f.walkOffset):
+	case <-time.After(time.Until(offsetEnd)):
 		f.slogger.Log(context.TODO(), slog.LevelDebug,
 			"exiting offset delay",
 		)
