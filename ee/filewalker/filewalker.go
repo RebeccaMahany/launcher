@@ -62,6 +62,7 @@ func (f *filewalker) Work() {
 	f.slogger.Log(context.TODO(), slog.LevelDebug,
 		"starting up",
 		"walk_interval", f.walkInterval.String(),
+		"walk_offset", f.walkOffset.String(),
 	)
 
 	// Always filewalk first, in case this is the first time we are collecting data.
@@ -100,6 +101,11 @@ func (f *filewalker) Work() {
 			)
 			return
 		case <-f.ticker.C:
+			// Reset ticker in case config has changed since last tick
+			f.walkLock.Lock()
+			f.ticker.Reset(f.walkInterval)
+			f.walkLock.Unlock()
+
 			f.Filewalk(context.TODO())
 		}
 	}
@@ -128,10 +134,12 @@ func (f *filewalker) UpdateConfig(newCfg filewalkConfig) {
 	f.walkLock.Lock()
 	defer f.walkLock.Unlock()
 
-	// Update walk interval first, updating ticker if it exists
-	if time.Duration(newCfg.WalkInterval) != f.walkInterval && f.ticker != nil {
-		f.ticker.Reset(time.Duration(newCfg.WalkInterval))
-	}
+	// Update walk interval first. `Work` handles the ticker reset,
+	// so that the offset is preserved appropriately. This means that
+	// the new interval isn't applied until the next interval tick arrives,
+	// but that is acceptable because FilewalkManager's `Ping` will also
+	// call `Filewalk` immdiately after config update -- so we're guaranteed
+	// fresh data immediately after config change anyway.
 	f.walkInterval = time.Duration(newCfg.WalkInterval)
 
 	// Extract root dirs and filename regex from cfg -- applying base options first, and then overlays
